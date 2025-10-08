@@ -1,0 +1,133 @@
+;; ==================================================
+;; AutoCAD 布局批量导出工具AutoCAD2020
+;; 功能：批量导出所有布局为单独的DWG文件，带目录选择
+;; 命令: EXPORTADV 或 EA
+;; 作者：King Lee
+;; 创建日期：2025.10.08
+;; ==================================================
+
+(defun c:EXPORTADV ( / *error* outPath layouts layout oldCTAB baseName outFile successCount totalCount)
+    (vl-load-com)
+    
+    (defun *error* (msg)
+        (if oldCTAB (setvar "CTAB" oldCTAB))
+        (princ (strcat "\n错误: " msg))
+        (princ)
+    )
+    
+    ;; 选择输出目录
+    (setq outPath (getvar "DWGPREFIX"))
+    (initget "原目录 选择")
+    (setq choice (getkword "\n选择输出目录 [原目录(R)/选择(S)] <原目录>: "))
+    
+    (cond
+        ((or (= choice "选择") (= choice "S"))
+            (setq outPath (uigetdir "选择输出目录" outPath))
+            (if (not outPath)
+                (progn
+                    (princ "\n使用原文件目录")
+                    (setq outPath (getvar "DWGPREFIX"))
+                )
+            )
+        )
+        (t (setq outPath (getvar "DWGPREFIX")))
+    )
+    
+    ;; 确保目录路径以反斜杠结尾
+    (if (not (wcmatch outPath "*\\"))
+        (setq outPath (strcat outPath "\\"))
+    )
+    
+    ;; 调用核心导出函数
+    (BatchExportCore outPath)
+    
+    (princ)
+)
+
+;; 核心导出函数
+(defun BatchExportCore (outPath / layouts layout oldCTAB baseName outFile successCount totalCount startTime)
+    (setq startTime (getvar "CDATE"))
+    (setq layouts (layoutlist))
+    (setq oldCTAB (getvar "CTAB"))
+    (setq baseName (vl-filename-base (getvar "DWGNAME")))
+    (setq successCount 0)
+    (setq totalCount 0)
+    
+    ;; 计算布局数量
+    (foreach layout layouts
+        (if (/= (strcase layout) "MODEL")
+            (setq totalCount (1+ totalCount))
+        )
+    )
+    
+    (princ (strcat "\n开始导出 " (itoa totalCount) " 个布局到: " outPath))
+    
+    (foreach layout layouts
+        (if (/= (strcase layout) "MODEL")
+            (progn
+                (princ (strcat "\n导出: " layout))
+                (setvar "CTAB" layout)
+                (command "_.REGEN")
+                
+                (setq outFile (strcat outPath baseName "_" layout ".dwg"))
+                
+                ;; 清除未完成命令
+                (while (> (getvar "CMDACTIVE") 0) (command ""))
+                
+                ;; 执行导出
+                (command "EXPORTLAYOUT")
+                (while (and (> (getvar "CMDACTIVE") 0)
+                           (not (vl-string-search "文件" (getvar "CMDNAMES"))))
+                  (command "")
+                )
+                
+                (if (> (getvar "CMDACTIVE") 0)
+                    (progn
+                        (command outFile)
+                        (setq successCount (1+ successCount))
+                        (princ " ?")
+                    )
+                    (princ " ?")
+                )
+            )
+        )
+    )
+    
+    (setvar "CTAB" oldCTAB)
+    
+    ;; 显示结果
+    (setq endTime (getvar "CDATE"))
+    (setq elapsedTime (* (- endTime startTime) 86400.0))
+    
+    (princ (strcat "\n\n完成! " (itoa successCount) "/" (itoa totalCount) " 个布局"))
+    (princ (strcat "\n耗时: " (rtos elapsedTime 2 2) " 秒"))
+    
+    (if (> successCount 0)
+        (princ (strcat "\n文件保存在: " outPath))
+    )
+    
+    (princ)
+)
+
+;; 文件夹选择对话框
+(defun uigetdir (message defaultpath / shell folder result)
+    (setq shell (vlax-create-object "Shell.Application"))
+    (if shell
+        (progn
+            (setq folder (vlax-invoke-method shell 'BrowseForFolder 0 message 1 defaultpath))
+            (if folder
+                (progn
+                    (setq result (vlax-get-property (vlax-get-property folder 'Self) 'Path))
+                    (vlax-release-object folder)
+                )
+            )
+            (vlax-release-object shell)
+        )
+    )
+    result
+)
+
+(defun c:EA () (c:EXPORTADV))
+
+(princ "\n高级导出命令已加载: EXPORTADV 或 EA")
+(princ)
