@@ -1,0 +1,125 @@
+;; ==================================================
+;; AutoCAD 布局批量导出工具AutoCAD2020
+;; 功能：批量导出所有布局为单独的DWG文件
+;; 作者：King Lee
+;; 创建日期：2025.10.08
+;; ==================================================
+
+(defun c:BATCHEXPORT ( / *error* layouts layout oldCTAB outPath baseName outFile successCount totalCount startTime)
+    (vl-load-com)
+    
+    ;; 错误处理函数
+    (defun *error* (msg)
+        (if oldCTAB (setvar "CTAB" oldCTAB))
+        (if (not (wcmatch (strcase msg) "*BREAK*,*CANCEL*,*EXIT*"))
+            (princ (strcat "\n错误: " msg))
+        )
+        (princ)
+    )
+    
+    ;; 主程序开始
+    (setq startTime (getvar "CDATE"))
+    (setq layouts (layoutlist))
+    (setq oldCTAB (getvar "CTAB"))
+    (setq outPath (getvar "DWGPREFIX"))
+    (setq baseName (vl-filename-base (getvar "DWGNAME")))
+    (setq successCount 0)
+    (setq totalCount 0)
+    
+    ;; 计算布局数量（排除模型）
+    (foreach layout layouts
+        (if (/= (strcase layout) "MODEL")
+            (setq totalCount (1+ totalCount))
+        )
+    )
+    
+    (princ "\n==========================================")
+    (princ (strcat "\n批量布局导出工具 v2.0"))
+    (princ (strcat "\n文件: " baseName))
+    (princ (strcat "\n输出目录: " outPath))
+    (princ (strcat "\n发现 " (itoa totalCount) " 个布局需要导出"))
+    (princ "\n==========================================")
+    
+    ;; 遍历所有布局并导出
+    (foreach layout layouts
+        (if (/= (strcase layout) "MODEL")
+            (progn
+                (princ (strcat "\n正在导出: " layout))
+                (setvar "CTAB" layout)
+                
+                ;; 确保布局完全激活
+                (command "_.REGEN")
+                
+                (setq outFile (strcat outPath baseName "_" layout ".dwg"))
+                
+                ;; 清除任何未完成的命令
+                (while (> (getvar "CMDACTIVE") 0)
+                    (command "")
+                )
+                
+                ;; 执行导出命令
+                (command "EXPORTLAYOUT")
+                
+                ;; 等待命令响应
+                (while (and 
+                         (> (getvar "CMDACTIVE") 0)
+                         (not (vl-string-search "文件" (getvar "CMDNAMES")))
+                       )
+                  (command "")
+                )
+                
+                ;; 如果命令仍在活动状态，输入文件名
+                (if (> (getvar "CMDACTIVE") 0)
+                    (progn
+                        (command outFile)
+                        (setq successCount (1+ successCount))
+                        (princ " ?")
+                    )
+                    (progn
+                        (princ " ? 失败")
+                    )
+                )
+            )
+        )
+    )
+    
+    ;; 恢复原始布局
+    (setvar "CTAB" oldCTAB)
+    
+    ;; 计算执行时间
+    (setq endTime (getvar "CDATE"))
+    (setq elapsedTime (* (- endTime startTime) 86400.0))
+    
+    ;; 显示总结信息
+    (princ "\n==========================================")
+    (princ (strcat "\n*** 批量导出完成! ***"))
+    (princ (strcat "\n成功导出: " (itoa successCount) "/" (itoa totalCount) " 个布局"))
+    (princ (strcat "\n输出目录: " outPath))
+    (princ (strcat "\n文件命名: 原文件名_布局名.dwg"))
+    (princ (strcat "\n耗时: " (rtos elapsedTime 2 2) " 秒"))
+    
+    ;; 显示导出的文件列表
+    (if (> successCount 0)
+        (progn
+            (princ "\n导出的文件:")
+            (foreach layout layouts
+                (if (/= (strcase layout) "MODEL")
+                    (princ (strcat "\n  ? " baseName "_" layout ".dwg"))
+                )
+            )
+        )
+    )
+    
+    (princ "\n==========================================")
+    (princ)
+)
+
+;; 简写命令
+(defun c:BE () (c:BATCHEXPORT))
+
+;; 加载提示
+(princ "\n******************************************")
+(princ "\n批量布局导出工具已加载!")
+(princ "\n使用命令: BATCHEXPORT 或 BE")
+(princ "\n******************************************")
+(princ)
